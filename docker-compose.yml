@@ -1,0 +1,29 @@
+services:
+  express_app_mysql:
+    image: mysql:8.0
+    container_name: express_app_mysql
+    hostname: express_app_mysql
+    ports:
+      - "3301:3306"
+    networks:
+      - app_network
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - mysql_logs:/var/log/mysql
+      - ./my.cnf:/etc/mysql/my.cnf
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=express_app_mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+
+networks:
+  app_network:
+    name: app_network
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  mysql_logs:
+    driver: local
