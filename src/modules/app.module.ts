@@ -1,9 +1,8 @@
-import { Module } from "../decorators/module.decorator";
 import { AppController } from "../controllers/app.controller";
-import { UserModule } from "./user.module";
+import { Module } from "../decorators/module.decorator";
 
 @Module({
-  imports: [UserModule],
+  imports: [],
   controllers: [AppController],
   providers: [],
 })

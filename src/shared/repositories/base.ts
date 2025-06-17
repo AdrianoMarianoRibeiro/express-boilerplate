@@ -1,7 +1,8 @@
-import { Repository, SelectQueryBuilder } from "typeorm";
-import { PageMetaDto } from "../pagination/page-meta.dto";
-import { PageDto } from "../pagination/page.dto";
-import { PageOptionsDto } from "../pagination/page-options.dto";
+import { Repository, SelectQueryBuilder } from 'typeorm';
+import { PageMetaDto } from '../pagination/page-meta.dto';
+import { PageDto } from '../pagination/page.dto';
+import { PageOptionsDto } from '../pagination/page-options.dto';
+import { OrderEnum } from '../pagination/order.enum';
 
 // Interface para opções de busca e ordenação
 export interface GetAllOptions<T> {
@@ -11,7 +12,9 @@ export interface GetAllOptions<T> {
   alias?: string;
   searchTerm?: string;
   searchFields?: Array<keyof T>;
-  excludeFields?: Array<keyof T>; // Nova propriedade
+  excludeFields?: Array<keyof T>;
+  relationSelects?: Record<string, string[]>;
+  excludeRelationFields?: Record<string, string[]>;
 }
 
 export abstract class AppBaseRepository<T extends Record<string, any>> {
@@ -66,35 +69,64 @@ export abstract class AppBaseRepository<T extends Record<string, any>> {
 
   async getAll(
     pageOptionsDto: PageOptionsDto,
-    options: GetAllOptions<T> = {}
+    options: GetAllOptions<T> = {},
   ): Promise<PageDto<T>> {
     const {
-      orderByField = "createdAt",
+      orderByField = 'createdAt',
       filters = {},
       relations = [],
       alias = this.repository.metadata.tableName,
       searchTerm,
       searchFields = [],
       excludeFields = [],
+      relationSelects = {},
+      excludeRelationFields = {},
     } = options;
+
+    pageOptionsDto.page = parseInt(pageOptionsDto.page.toString()) || 1;
+    pageOptionsDto.limit = parseInt(pageOptionsDto.limit.toString()) || 10;
+    pageOptionsDto.order = pageOptionsDto.order || OrderEnum.ASC;
+    const skip =
+      pageOptionsDto.skip ?? (pageOptionsDto.page - 1) * pageOptionsDto.limit;
 
     const queryBuilder = this.repository.createQueryBuilder(alias);
 
     // Seleciona apenas os campos desejados (excluindo os especificados)
     if (excludeFields.length > 0) {
       const allColumns = this.repository.metadata.columns.map(
-        (col) => col.propertyName
+        (col) => col.propertyName,
       );
       const selectedColumns = allColumns.filter(
-        (col) => !excludeFields.includes(col as keyof T)
+        (col) => !excludeFields.includes(col as keyof T),
       );
 
       queryBuilder.select(selectedColumns.map((col) => `${alias}.${col}`));
     }
 
-    // ...resto do código permanece igual...
     relations.forEach((relation) => {
-      queryBuilder.leftJoinAndSelect(`${alias}.${relation}`, relation);
+      queryBuilder.leftJoin(`${alias}.${relation}`, relation);
+
+      if (excludeRelationFields[relation]) {
+        // Se há campos para excluir nesta relação
+        const relationMetadata = this.repository.manager.connection.getMetadata(
+          this.getRelationEntityType(relation),
+        );
+
+        const allRelationColumns = relationMetadata.columns.map(
+          (col) => col.propertyName,
+        );
+        const selectedRelationColumns = allRelationColumns.filter(
+          (col) => !excludeRelationFields[relation].includes(col),
+        );
+
+        // Adicionar apenas os campos não excluídos
+        queryBuilder.addSelect(
+          selectedRelationColumns.map((col) => `${relation}.${col}`),
+        );
+      } else {
+        // Se não há exclusões, selecionar todos os campos da relação
+        queryBuilder.addSelect(`${relation}`);
+      }
     });
 
     this.applyFilters(queryBuilder, filters, alias);
@@ -105,10 +137,11 @@ export abstract class AppBaseRepository<T extends Record<string, any>> {
 
     queryBuilder.orderBy(
       `${alias}.${String(orderByField)}`,
-      pageOptionsDto.order
+      pageOptionsDto.order,
     );
 
-    queryBuilder.skip(pageOptionsDto.skip).take(pageOptionsDto.take);
+    // CORREÇÃO: Usar offset ao invés de skip
+    queryBuilder.offset(skip).limit(pageOptionsDto.limit);
 
     const itemCount = await queryBuilder.getCount();
     const { entities } = await queryBuilder.getRawAndEntities();
@@ -118,15 +151,23 @@ export abstract class AppBaseRepository<T extends Record<string, any>> {
     return new PageDto(entities, pageMetaDto);
   }
 
+  private getRelationEntityType(relationName: string): any {
+    const metadata = this.repository.metadata;
+    const relation = metadata.relations.find(
+      (rel) => rel.propertyName === relationName,
+    );
+    return relation?.type;
+  }
+
   // Método auxiliar para aplicar filtros
   private applyFilters<T extends Record<string, any>>(
     queryBuilder: SelectQueryBuilder<T>,
     filters: Record<string, any>,
-    alias: string
+    alias: string,
   ): void {
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
-        if (typeof value === "string") {
+        if (typeof value === 'string') {
           queryBuilder.andWhere(`${alias}.${key} LIKE :${key}`, {
             [key]: `%${value}%`,
           });
@@ -144,15 +185,15 @@ export abstract class AppBaseRepository<T extends Record<string, any>> {
     queryBuilder: SelectQueryBuilder<T>,
     searchTerm: string,
     searchFields: Array<keyof T>,
-    alias: string
+    alias: string,
   ): void {
     if (searchFields.length === 0) return;
 
     const conditions = searchFields.map(
-      (field) => `${alias}.${String(field)} LIKE :searchTerm`
+      (field) => `${alias}.${String(field)} LIKE :searchTerm`,
     );
 
-    queryBuilder.andWhere(`(${conditions.join(" OR ")})`, {
+    queryBuilder.andWhere(`(${conditions.join(' OR ')})`, {
       searchTerm: `%${searchTerm}%`,
     });
   }

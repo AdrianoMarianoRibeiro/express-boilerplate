@@ -1,30 +1,58 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { PageMetaDtoParameters } from './page-meta-dto-parameters.interface';
+import { ApiProperty } from '../../decorators';
+
+export interface PageMetaDtoParameters {
+  pageOptionsDto: any;
+  itemCount: number;
+}
 
 export class PageMetaDto {
-  @ApiProperty()
-  readonly page: number | undefined;
+  @ApiProperty({
+    description: 'Current page number',
+    type: 'number',
+    example: 1,
+  })
+  readonly page: number;
 
-  @ApiProperty()
-  readonly take: number | undefined;
+  @ApiProperty({
+    description: 'Number of items per page',
+    type: 'number',
+    example: 10,
+  })
+  readonly limit: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Total number of items',
+    type: 'number',
+    example: 100,
+  })
   readonly itemCount: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Total number of pages',
+    type: 'number',
+    example: 10,
+  })
   readonly pageCount: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Whether there is a previous page',
+    type: 'boolean',
+    example: false,
+  })
   readonly hasPreviousPage: boolean;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Whether there is a next page',
+    type: 'boolean',
+    example: true,
+  })
   readonly hasNextPage: boolean;
 
   constructor({ pageOptionsDto, itemCount }: PageMetaDtoParameters) {
-    this.page = pageOptionsDto.page ?? 1;
-    this.take = pageOptionsDto.take ?? 10;
+    this.page = parseInt(pageOptionsDto.page);
+    this.limit = parseInt(pageOptionsDto.limit);
     this.itemCount = itemCount;
-    this.pageCount = Math.ceil(this.itemCount / this.take);
+    this.pageCount = Math.ceil(this.itemCount / this.limit);
     this.hasPreviousPage = this.page > 1;
     this.hasNextPage = this.page < this.pageCount;
   }
