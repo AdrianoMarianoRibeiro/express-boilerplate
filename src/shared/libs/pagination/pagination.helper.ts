@@ -8,7 +8,7 @@ export class Pagination {
     dtos: T[]
   ): PaginationResponseDto<T> {
     const totalPages = Math.ceil(totalRecords / limit);
-    const currentPage = +page > 0 ? +page : 1;
+    const currentPage = +page! > 0 ? +page! : 1;
     const hasNext = currentPage <= totalPages - 1;
 
     return {

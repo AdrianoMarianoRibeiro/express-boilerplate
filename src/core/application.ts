@@ -85,7 +85,7 @@ export class ExpressApplication {
     console.log('🔍 Debug endpoint available at: /debug/routes');
   }
 
-  private loadModule(ModuleClass: any): void {
+  private loadModule(ModuleClass: any) {
     const moduleMetadata: ModuleOptions = Reflect.getMetadata(
       MODULE_KEY,
       ModuleClass,
@@ -95,28 +95,96 @@ export class ExpressApplication {
       throw new AppException(`${ModuleClass.name} is not a valid module`);
     }
 
-    // Load imported modules first
+    // Load imported modules first and collect their exports
+    const availableProviders = new Set<any>();
+
     if (moduleMetadata.imports) {
       moduleMetadata.imports.forEach((importedModule) => {
-        this.loadModule(importedModule);
+        const importedExports = this.loadModule(importedModule);
+        // Add exported providers to available providers
+        importedExports.forEach((provider) => availableProviders.add(provider));
       });
     }
 
-    // Register providers
+    // Register providers (only for this module)
+    const moduleProviders = new Set<any>();
     if (moduleMetadata.providers) {
       moduleMetadata.providers.forEach((provider) => {
         container.registerSingleton(provider);
+        moduleProviders.add(provider);
+      });
+    }
+
+    // Validate that all dependencies are available
+    if (moduleMetadata.providers) {
+      moduleMetadata.providers.forEach((provider) => {
+        this.validateProviderDependencies(
+          provider,
+          availableProviders,
+          moduleProviders,
+        );
       });
     }
 
     // Register controllers
     if (moduleMetadata.controllers) {
       moduleMetadata.controllers.forEach((controller) => {
+        // Validate controller dependencies
+        this.validateProviderDependencies(
+          controller,
+          availableProviders,
+          moduleProviders,
+        );
+
         container.registerSingleton(controller);
-        this.controllers.push(controller); // Adiciona à lista de controllers
+        this.controllers.push(controller);
         this.registerController(controller);
       });
     }
+
+    // Return exports for parent modules
+    const exports = new Set<any>();
+    if (moduleMetadata.exports) {
+      moduleMetadata.exports.forEach((exportedProvider) => {
+        if (moduleProviders.has(exportedProvider)) {
+          exports.add(exportedProvider);
+        } else {
+          throw new AppException(
+            `Cannot export ${exportedProvider.name} from ${ModuleClass.name} because it's not a provider of this module`,
+          );
+        }
+      });
+    }
+
+    return exports;
+  }
+
+  private validateProviderDependencies(
+    providerClass: any,
+    availableProviders: Set<any>,
+    moduleProviders: Set<any>,
+  ): void {
+    // Get constructor parameters (dependencies)
+    const dependencies =
+      Reflect.getMetadata('design:paramtypes', providerClass) || [];
+
+    dependencies.forEach((dependency: any, index: number) => {
+      // Skip primitive types
+      if (!dependency || typeof dependency !== 'function') {
+        return;
+      }
+
+      // Check if dependency is available in current module or imported
+      if (
+        !moduleProviders.has(dependency) &&
+        !availableProviders.has(dependency)
+      ) {
+        throw new AppException(
+          `${providerClass.name} has unresolved dependency at index ${index}. ` +
+            `Make sure ${dependency.name} is available in ${providerClass.name}'s module or imported from another module.`,
+        );
+      }
+    });
   }
 
   private setupSwagger(): void {
